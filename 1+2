@@ -1,0 +1,213 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+from matplotlib.patches import Arc
+import os
+
+
+# Využívám objektové programování. Vytvořím třídu PoolTable, pro kterou následně definuji parametry a metody
+class PoolTable:
+    def __init__(self, length, width, ball_radius, ball_speed):
+        self.length = length # celková šířka - měla by být width, lze udělat refactor !ve správném pořadí!
+        self.width = width # celková výška - měla by být height, lze udělat refactor
+        self.radius = width // 2 # Aby byl stůl uzavřený
+        self.ball_radius = ball_radius # velikost míčku lze upravovat podle celkové velikosti stolu
+        self.ball_speed = ball_speed # rychlost pohybu
+        self.ball_position = np.array([length // 2, width // 2], dtype=np.float64) # x a y
+        self.ball_direction = np.array([random.uniform(-1, 1), random.uniform(-1, 1)], dtype=np.float64)
+        self.ball_direction /= np.linalg.norm(self.ball_direction) # vektor
+        self.perimeter_points = []  # Pro ukládání souřadnic l a THETA
+        self.bounce_positions = []  # x a y
+
+    # výpočet následující pozice a kontrola, zda se dotkl okraje
+    def update_position(self, dt):
+        self.ball_position += self.ball_speed * self.ball_direction * dt
+        self.check_collision()
+
+    # metoda pro kontrolu, zda se míč dotkl okraje
+    def check_collision(self):
+        x, y = self.ball_position
+
+        # Kontrola kolize s levým půlkruhem
+        if x - self.ball_radius < self.radius: # podmínka pro možnost kolize s levým půlkruhem
+            dist_to_center = np.linalg.norm([abs(x - self.radius), y - self.width / 2]) # vzdálenost od středu půlkruhu
+            if dist_to_center + self.ball_radius >= self.radius: # podmínka dotyku
+                self.record_perimeter_point(x, y, 'left_curve') # ulož l a theta
+                self.reflect_from_circle(self.radius, self.width / 2)  # odraz míč
+
+        # Kontrola kolize s pravým půlkruhem
+        elif x + self.ball_radius > self.length - self.radius:
+            dist_to_center = np.linalg.norm([abs(x - (self.length - self.radius)), y - self.width / 2])
+            if dist_to_center + self.ball_radius >= self.radius:
+                self.record_perimeter_point(x, y, 'right_curve')
+                self.reflect_from_circle(self.length - self.radius, self.width / 2)
+
+        # Kontrola kolize s horizontálními úsečkami
+        if y - self.ball_radius < 0 or y + self.ball_radius > self.width:
+            if self.radius <= x <= self.length - self.radius:  # Only reflect if within the straight section
+                self.record_perimeter_point(x, y, 'horizontal')
+                self.ball_direction[1] *= -1
+
+    # Změna trajektorie podle zákona odrazu
+    def reflect_from_circle(self, cx, cy):
+        ball_to_center = self.ball_position - np.array([cx, cy], dtype=np.float64)
+        # normálový vektor, od kterého se vypočte nový vektor
+        normal_vector = ball_to_center / np.linalg.norm(ball_to_center)
+        self.ball_direction -= 2 * np.dot(self.ball_direction, normal_vector) * normal_vector
+        self.ball_direction /= np.linalg.norm(self.ball_direction)
+
+    # ukládá l a THETA při dotyku, výpočet probíhá odděleně podle typu dotyku (horizontální, levý, pravý)
+    # vše je definováno pro jednu variantu počátečního bodu, není to teda zcela univerzální, kdyby se změnil, musel by
+    # se změnit i výpočet
+    def record_perimeter_point(self, x, y, collision_type):
+        if collision_type == 'horizontal':
+            # výpočet l a tečny pro horizontální dotyk
+            if y < self.width / 2: # podmínka pro spodní horizontální dotyk
+                l = 2 * np.pi * self.radius + self.length - 2 * self.radius + self.length - self.radius - x
+                tangent_vector = np.array([1.0, 0.0])
+            else: # jinak pro horní horizontální dotek
+                l = np.pi * self.radius + x - self.radius
+                tangent_vector = np.array([1.0, 0.0])
+
+        # levý dotyk
+        elif collision_type == 'left_curve':
+            if y < self.width / 2: # spodní levý
+                alpha = np.arccos((self.radius - y) / self.radius)
+                l = alpha * self.radius
+            elif y == self.width / 2: # střední levý
+                l = np.pi * self.radius / 2
+            else: # horní levý
+                beta = np.arcsin((y - self.radius) / self.radius) #pomocný úhel slouží k výpočtu alpha
+                alpha = np.pi / 2 + beta
+                l = alpha * self.radius
+
+            # kolmý vektor na vektor spojující místo dotyku a střed půlkruhu
+            tangent_vector = np.array([-(y - self.width / 2), x - self.radius])
+
+        # obdobně pro pravý dotyk
+        elif collision_type == 'right_curve':
+            if y < self.width / 2:
+                alpha = np.arccos((self.radius - (self.width - y)) / self.radius)
+                l = alpha * self.radius + np.pi * self.radius + (self.length - 2 * self.radius)
+            elif y == self.width / 2:
+                l = 3 * np.pi * self.radius / 2 + (self.length - 2 * self.radius)
+            else:
+                beta = np.arcsin(((self.width - y) - self.radius) / self.radius)
+                alpha = np.pi / 2 + beta
+                l = alpha * self.radius + np.pi * self.radius + (self.length - 2 * self.radius)
+
+            tangent_vector = np.array([-(y - self.width / 2), x - (self.length - self.radius)])
+
+        else:
+            return  # Neplatný dotyk
+
+        tangent_vector /= np.linalg.norm(tangent_vector)
+
+        # Úhel theta mezi tečnou a trajektorií, pokud je theta větší než 90, vezmeme doplněk do 180
+        cos_theta = np.dot(self.ball_direction, tangent_vector)
+        THETA = np.arccos(np.clip(cos_theta, -1.0, 1.0))
+        if THETA > np.pi/2: # zajišťuje, že je THETA mezi 0 a 90
+            THETA = np.pi - THETA
+
+        self.perimeter_points.append((l, THETA)) # zapíše souřadnice l THETA
+        self.bounce_positions.append((x, y))  # zapíše souřadnice x y
+
+        # Kontrola bez přepínání grafů
+        print(f'Bounce {len(self.perimeter_points)}: l = {l:.2f}, THETA = {np.degrees(THETA):.2f} degrees')
+
+    # provede simulaci
+    def simulate(self, duration, dt):
+        positions = [self.ball_position.copy()]
+        times = np.arange(0, duration, dt)
+        for _ in times:
+            self.update_position(dt)
+            positions.append(self.ball_position.copy())
+        return np.array(positions)
+
+
+# Parametry stolu
+table_length = 400
+table_width = 200
+ball_radius = 2
+ball_speed = 100  # pixels per second
+duration = 20  # seconds
+dt = 0.01  # time step
+
+# zajišťuje, že je stůl uzavřený
+if table_width > table_length or table_length < 2 or table_width < 2:
+    raise ValueError(f'Invalid table size!')
+
+
+# Vytvoří stůl a simuluje pohyb míčku (s náhodně zvolenou trajektorií
+pool_table = PoolTable(table_length, table_width, ball_radius, ball_speed)
+positions = pool_table.simulate(duration, dt)
+
+# zajišťuje existenci adresáře na ukládání grafů
+if not os.path.exists('plots'):
+    os.makedirs('plots')
+
+# Graf pohybu míčku
+fig, ax = plt.subplots()
+ax.set_aspect('equal')
+ax.set_xlim(-10, table_length + 10)
+ax.set_ylim(-10, table_width + 10)
+
+# půlkruhy
+left_arc = Arc((pool_table.radius, pool_table.width / 2), 2 * pool_table.radius, 2 * pool_table.radius, angle=0,
+               theta1=90, theta2=270, color='red', fill=False)
+right_arc = Arc((pool_table.length - pool_table.radius, pool_table.width / 2), 2 * pool_table.radius,
+                2 * pool_table.radius, angle=0,
+                theta1=-90, theta2=90, color='red', fill=False)
+
+ax.add_patch(left_arc)
+ax.add_patch(right_arc)
+
+# horizontální úsečky
+ax.plot([pool_table.radius, pool_table.length - pool_table.radius], [0, 0], color='red', linewidth=1)
+ax.plot([pool_table.radius, pool_table.length - pool_table.radius], [pool_table.width, pool_table.width],
+        color='red', linewidth=1)
+
+# pohyb míčku
+ax.plot(positions[:, 0], positions[:, 1], color='blue')
+
+# míček
+ax.add_patch(plt.Circle(positions[-1], ball_radius, color='black'))
+
+# Počáteční bod pro výpočet l
+origin_point = (pool_table.radius, 0)  # Spodní levý bod
+ax.plot(*origin_point, 'go')
+ax.text(*origin_point, r' Origin $(l=0)$', color='green', fontsize=10, verticalalignment='bottom')
+
+# Označení bodů odrazu
+for i, (bx, by) in enumerate(pool_table.bounce_positions):
+    ax.plot(bx, by, 'ro')
+    ax.text(bx - 5, by + 5, f'{i + 1}', fontsize=9, color='red', verticalalignment='bottom', horizontalalignment='right')
+
+# Popisy os
+ax.set_xlabel(r'$x$ [px]')
+ax.set_ylabel(r'$y$ [px]')
+
+plt.title(r'Ball Trajectory on the Pool Table')
+plt.savefig('plots/pool_table_trajectory.pdf')
+plt.savefig('plots/pool_table_trajectory.jpg')
+plt.close()
+
+# Graf s parametry l a THETA
+l_values, theta_values = zip(*pool_table.perimeter_points)
+plt.figure()
+plt.plot(l_values, np.degrees(theta_values), 'bo')
+plt.xlabel(r'$l$')
+plt.ylabel(r'$\Theta [^{\circ}]$')
+
+plt.xlim(-5, 2 * np.pi * pool_table.radius + 2 * (pool_table.length - 2 * pool_table.radius))
+plt.ylim(-2, 92)  # Set y-axis limits from 0 to 90 degrees
+
+plt.title(r'Ball Trajectory in Perimeter Coordinates')
+
+# Popisy bodů
+for i, (l, theta) in enumerate(zip(l_values, theta_values)):
+    plt.text(l, np.degrees(theta), str(i + 1), fontsize=9, ha='right', va='bottom')
+
+plt.savefig('plots/perimeter_coordinates.pdf')
+plt.savefig('plots/perimeter_coordinates.jpg')
+plt.close()
