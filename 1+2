@@ -44,7 +44,7 @@ class PoolTable:
 
         # Kontrola kolize s horizontálními úsečkami
         if y - self.ball_radius < 0 or y + self.ball_radius > self.width:
-            if self.radius <= x <= self.length - self.radius:  # Only reflect if within the straight section
+            if self.radius <= x <= self.length - self.radius:  # odraz v případě horizontálních úseček
                 self.record_perimeter_point(x, y, 'horizontal')
                 self.ball_direction[1] *= -1
 
@@ -129,9 +129,9 @@ class PoolTable:
 table_length = 400
 table_width = 200
 ball_radius = 2
-ball_speed = 100  # pixels per second
-duration = 20  # seconds
-dt = 0.01  # time step
+ball_speed = 100  # pixely za sekundu
+duration = 20  # sekundy
+dt = 0.01  # časový krok
 
 # zajišťuje, že je stůl uzavřený
 if table_width > table_length or table_length < 2 or table_width < 2:
@@ -200,7 +200,7 @@ plt.xlabel(r'$l$')
 plt.ylabel(r'$\Theta [^{\circ}]$')
 
 plt.xlim(-5, 2 * np.pi * pool_table.radius + 2 * (pool_table.length - 2 * pool_table.radius))
-plt.ylim(-2, 92)  # Set y-axis limits from 0 to 90 degrees
+plt.ylim(-2, 92)  # nastavení hranic y-osy od 0 do 90 stupňů
 
 plt.title(r'Ball Trajectory in Perimeter Coordinates')
 
