@@ -1,0 +1,169 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+from scipy.optimize import curve_fit
+
+
+# Předpis exponenciály
+def exponential_growth(t, delta_0, lamb):
+    return delta_0 * np.exp(lamb * t)
+
+
+class PoolTable:
+    def __init__(self, length, width, ball_radius, ball_speed, initial_position=None, initial_direction=None):
+        self.length = length
+        self.width = width
+        self.radius = width // 2
+        self.ball_radius = ball_radius
+        self.ball_speed = ball_speed
+
+        if initial_position is None:
+            self.ball_position = self.random_starting_position()
+        else:
+            self.ball_position = np.array(initial_position, dtype=np.float64)
+
+        if initial_direction is None:
+            self.ball_direction = np.array([random.uniform(-1, 1), random.uniform(-1, 1)], dtype=np.float64)
+            self.ball_direction /= np.linalg.norm(self.ball_direction)
+        else:
+            self.ball_direction = np.array(initial_direction, dtype=np.float64)
+
+    # Náhodná konfigurace x, y
+    def random_starting_position(self):
+        while True:
+            x = random.uniform(0, self.length)
+            y = random.uniform(0, self.width)
+
+            # levý půlkruh
+            if x < self.radius:
+                if np.linalg.norm([x - self.radius, y - self.width / 2]) + self.ball_radius <= self.radius:
+                    return np.array([x, y], dtype=np.float64)
+
+            # pravý půlkruh
+            elif x > self.length - self.radius:
+                if np.linalg.norm([x - (self.length - self.radius), y - self.width / 2]) + self.ball_radius <= self.radius:
+                    return np.array([x, y], dtype=np.float64)
+
+            # prostřední část
+            else:
+                return np.array([x, y], dtype=np.float64)
+
+    # výpočet následující pozice a kontrola, zda se dotkl okraje
+    def update_position(self, dt):
+        self.ball_position += self.ball_speed * self.ball_direction * dt
+        self.check_collision()
+
+    # metoda pro kontrolu, zda se míč dotkl okraje
+    def check_collision(self):
+        x, y = self.ball_position
+
+        if x - self.ball_radius < self.radius:
+            dist_to_center = np.linalg.norm([abs(x - self.radius), y - self.width / 2])
+            if dist_to_center + self.ball_radius >= self.radius:
+                self.reflect_from_circle(self.radius, self.width / 2)
+
+        elif x + self.ball_radius > self.length - self.radius:
+            dist_to_center = np.linalg.norm([abs(x - (self.length - self.radius)), y - self.width / 2])
+            if dist_to_center + self.ball_radius >= self.radius:
+                self.reflect_from_circle(self.length - self.radius, self.width / 2)
+
+        if y - self.ball_radius < 0 or y + self.ball_radius > self.width:
+            if self.radius <= x <= self.length - self.radius:
+                self.ball_direction[1] *= -1
+
+    # Změna trajektorie podle zákona odrazu
+    def reflect_from_circle(self, cx, cy):
+        ball_to_center = self.ball_position - np.array([cx, cy], dtype=np.float64)
+        normal_vector = ball_to_center / np.linalg.norm(ball_to_center)
+        self.ball_direction -= 2 * np.dot(self.ball_direction, normal_vector) * normal_vector
+        self.ball_direction /= np.linalg.norm(self.ball_direction)
+
+    def simulate_step(self, dt):
+        self.update_position(dt)
+        return self.ball_position.copy()
+
+# Funkce na generování podobné trajektorie, na vstupu je první trajektorie a parametry stolu
+def generate_close_configuration(first_position, table_length, table_width, ball_radius):
+    possible_positions = [
+        (first_position[0] + 1, first_position[1] + 1),
+        (first_position[0] - 1, first_position[1] - 1),
+        (first_position[0] + 1, first_position[1]),
+        (first_position[0], first_position[1] + 1),
+        (first_position[0] - 1, first_position[1]),
+        (first_position[0], first_position[1] - 1)
+    ]
+
+    for new_x, new_y in possible_positions:
+        if 0 + ball_radius <= new_x <= table_length - ball_radius and 0 + ball_radius <= new_y <= table_width - ball_radius:
+            return np.array([new_x, new_y], dtype=np.float64)
+
+    return first_position  # Nemělo by nastat, v praxi by měli nastat pouze první ?4? pozice
+
+
+# Funkce k provedení simulace 2 blízkých trajektorií s výpočtem lambdy
+def run_simulation():
+    # parametry stolu a míčku
+    table_length = 400
+    table_width = 200
+    ball_radius = 2
+    ball_speed = 100  # lehce změněn součin, ale pro výpočet ze většího množství opakování je nutné nastavit větší dt
+    dt = 0.0001
+
+    # První konfigurace
+    pool_table_1 = PoolTable(table_length, table_width, ball_radius, ball_speed)
+    first_position = pool_table_1.ball_position
+    first_direction = pool_table_1.ball_direction
+
+    # Druhá konfigurace
+    second_position = generate_close_configuration(first_position, table_length, table_width, ball_radius)
+    pool_table_2 = PoolTable(table_length, table_width, ball_radius, ball_speed, second_position, first_direction)
+
+    # Zde je to zbytečné, ale v kombinace 1. a 3. úlohy využívám tyto hodnoty pro tvorbu grafů
+    positions_1 = []
+    positions_2 = []
+    distances = []
+    time = []
+
+    # Simulace probíhá, dokud vzdálenost nepřekročí length/4
+    current_time = 0
+    while True:
+        # Výpočet pozic po jednom kroku a kontrola vzdálenosti
+        pos_1 = pool_table_1.simulate_step(dt)
+        pos_2 = pool_table_2.simulate_step(dt)
+
+        # Výpočet vzdálenosti
+        distance = np.linalg.norm(pos_1 - pos_2)
+        distances.append(distance)
+        time.append(current_time)
+
+        # Mohlo by teoreticky dojít k těm problémům s pamětí
+        positions_1.append(pos_1)
+        positions_2.append(pos_2)
+
+        if distance > table_length / 4:
+            break
+
+        current_time += dt
+
+    # Fitování exponenciály
+    distances = np.array(distances)
+    time = np.array(time)
+    popt, _ = curve_fit(exponential_growth, time, distances, p0=[distances[0], 0.1])
+    delta_0, lambda_value = popt
+    return lambda_value
+
+lambda_values = []
+for _ in range(100):
+    lambda_value = run_simulation()
+    lambda_values.append(lambda_value)
+
+mean_lambda = np.mean(lambda_values)
+print(f"Mean Lyapunov exponent (λ): {mean_lambda:.5f}")
+
+# histogram
+plt.hist(lambda_values, bins=10, color='blue', alpha=0.7, label=f'Mean λ = {mean_lambda:.5f}')
+plt.xlabel('Lyapunov Exponent (λ)')
+plt.ylabel('Frequency')
+plt.title('Distribution of Lyapunov Exponents')
+plt.legend()
+plt.show()
