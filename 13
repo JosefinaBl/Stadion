@@ -5,6 +5,8 @@ from matplotlib.patches import Arc
 from scipy.optimize import curve_fit
 import os
 
+DELTA = 0.0001   #PS Počáteční odchylku trajektorií je dobré volit co nejmenší
+DISTANCE_THRESHOLD_FACTOR = 100  #PS Faktor pro ukončení výpočtu
 
 class PoolTable:
     def __init__(self, length, width, ball_radius, ball_speed, initial_position=None, initial_direction=None):
@@ -75,13 +77,13 @@ class PoolTable:
 
 def generate_close_configuration(first_position, table_length, table_width, ball_radius):
     possible_positions = [
-        (first_position[0] + 1, first_position[1] + 1),
-        (first_position[0] - 1, first_position[1] - 1),
-        (first_position[0] + 1, first_position[1]),
-        (first_position[0], first_position[1] + 1),
-        (first_position[0] - 1, first_position[1]),
-        (first_position[0], first_position[1] - 1)
-    ]
+        (first_position[0] + DELTA, first_position[1] + DELTA), 
+        (first_position[0] - DELTA, first_position[1] - DELTA),
+        (first_position[0] + DELTA, first_position[1]),
+        (first_position[0], first_position[1] + DELTA),
+        (first_position[0] - DELTA, first_position[1]),
+        (first_position[0], first_position[1] - DELTA)
+    ]   #PS Přidání parametru delta
 
     for new_x, new_y in possible_positions:
         if (0 + ball_radius <= new_x <= table_length - ball_radius and 0 + ball_radius <= new_y <= table_width -
@@ -125,7 +127,7 @@ while True:
     positions_1.append(pos_1)
     positions_2.append(pos_2)
 
-    if distance > table_length / 4:
+    if distance > table_length / DISTANCE_THRESHOLD_FACTOR:
         break
 
     current_time += dt
@@ -141,7 +143,7 @@ delta_0, lambda_value = params
 
 plt.plot(time, distances, label='Distance between two balls', color='blue')
 plt.plot(time, exponential_growth(time, delta_0, lambda_value), 'r--', label=f'Exponential fit: λ = {lambda_value:.5f}')
-plt.axhline(table_length / 4, color='green', linestyle='-', label=f'Length/4 = {table_length / 4}')
+plt.axhline(table_length / DISTANCE_THRESHOLD_FACTOR, color='green', linestyle='-', label=f'Length/{DISTANCE_THRESHOLD_FACTOR} = {table_length / DISTANCE_THRESHOLD_FACTOR}')
 plt.xlabel('Time [s]')
 plt.ylabel('Distance [px]')
 plt.title('Distance between two balls over time')
