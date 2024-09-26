@@ -1,0 +1,184 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+from matplotlib.patches import Arc
+from scipy.optimize import curve_fit
+import os
+
+
+class PoolTable:
+    def __init__(self, length, width, ball_radius, ball_speed, initial_position=None, initial_direction=None):
+        self.length = length
+        self.width = width
+        self.radius = width // 2
+        self.ball_radius = ball_radius
+        self.ball_speed = ball_speed
+
+        if initial_position is None:
+            self.ball_position = self.random_starting_position()
+        else:
+            self.ball_position = np.array(initial_position, dtype=np.float64)
+
+        if initial_direction is None:
+            self.ball_direction = np.array([random.uniform(-1, 1), random.uniform(-1, 1)], dtype=np.float64)
+            self.ball_direction /= np.linalg.norm(self.ball_direction)
+        else:
+            self.ball_direction = np.array(initial_direction, dtype=np.float64)
+
+    def random_starting_position(self):
+        while True:
+            x = random.uniform(0, self.length)
+            y = random.uniform(0, self.width)
+
+            if x < self.radius:
+                if np.linalg.norm([x - self.radius, y - self.width / 2]) + self.ball_radius <= self.radius:
+                    return np.array([x, y], dtype=np.float64)
+
+            elif x > self.length - self.radius:
+                if np.linalg.norm([x - (self.length - self.radius), y - self.width / 2]) + self.ball_radius <= self.radius:
+                    return np.array([x, y], dtype=np.float64)
+
+            else:
+                return np.array([x, y], dtype=np.float64)
+
+    def update_position(self, dt):
+        self.ball_position += self.ball_speed * self.ball_direction * dt
+        self.check_collision()
+
+    def check_collision(self):
+        x, y = self.ball_position
+
+        if x - self.ball_radius < self.radius:
+            dist_to_center = np.linalg.norm([abs(x - self.radius), y - self.width / 2])
+            if dist_to_center + self.ball_radius >= self.radius:
+                self.reflect_from_circle(self.radius, self.width / 2)
+
+        elif x + self.ball_radius > self.length - self.radius:
+            dist_to_center = np.linalg.norm([abs(x - (self.length - self.radius)), y - self.width / 2])
+            if dist_to_center + self.ball_radius >= self.radius:
+                self.reflect_from_circle(self.length - self.radius, self.width / 2)
+
+        if y - self.ball_radius < 0 or y + self.ball_radius > self.width:
+            if self.radius <= x <= self.length - self.radius:
+                self.ball_direction[1] *= -1
+
+    def reflect_from_circle(self, cx, cy):
+        ball_to_center = self.ball_position - np.array([cx, cy], dtype=np.float64)
+        normal_vector = ball_to_center / np.linalg.norm(ball_to_center)
+        self.ball_direction -= 2 * np.dot(self.ball_direction, normal_vector) * normal_vector
+        self.ball_direction /= np.linalg.norm(self.ball_direction)
+
+    def simulate_step(self, dt):
+        self.update_position(dt)
+        return self.ball_position.copy()
+
+
+def generate_close_configuration(first_position, table_length, table_width, ball_radius):
+    possible_positions = [
+        (first_position[0] + 1, first_position[1] + 1),
+        (first_position[0] - 1, first_position[1] - 1),
+        (first_position[0] + 1, first_position[1]),
+        (first_position[0], first_position[1] + 1),
+        (first_position[0] - 1, first_position[1]),
+        (first_position[0], first_position[1] - 1)
+    ]
+
+    for new_x, new_y in possible_positions:
+        if (0 + ball_radius <= new_x <= table_length - ball_radius and 0 + ball_radius <= new_y <= table_width -
+                ball_radius):
+            return np.array([new_x, new_y], dtype=np.float64)
+
+    return first_position
+
+
+def exponential_growth(t, delta_0, lambda_):
+    return delta_0 * np.exp(lambda_ * t)
+
+
+table_length = 400
+table_width = 200
+ball_radius = 2
+ball_speed = 100
+dt = 0.00001
+
+pool_table_1 = PoolTable(table_length, table_width, ball_radius, ball_speed)
+first_position = pool_table_1.ball_position
+first_direction = pool_table_1.ball_direction
+
+second_position = generate_close_configuration(first_position, table_length, table_width, ball_radius)
+pool_table_2 = PoolTable(table_length, table_width, ball_radius, ball_speed, second_position, first_direction)
+
+positions_1 = []
+positions_2 = []
+distances = []
+time = []
+
+current_time = 0
+while True:
+    pos_1 = pool_table_1.simulate_step(dt)
+    pos_2 = pool_table_2.simulate_step(dt)
+
+    distance = np.linalg.norm(pos_1 - pos_2)
+    distances.append(distance)
+    time.append(current_time)
+
+    positions_1.append(pos_1)
+    positions_2.append(pos_2)
+
+    if distance > table_length / 4:
+        break
+
+    current_time += dt
+
+positions_1 = np.array(positions_1)
+positions_2 = np.array(positions_2)
+time = np.array(time)
+distances = np.array(distances)
+
+initial_guess = [distances[0], 0.1]
+params, covariance = curve_fit(exponential_growth, time, distances, p0=initial_guess)
+delta_0, lambda_value = params
+
+plt.plot(time, distances, label='Distance between two balls', color='blue')
+plt.plot(time, exponential_growth(time, delta_0, lambda_value), 'r--', label=f'Exponential fit: λ = {lambda_value:.5f}')
+plt.axhline(table_length / 4, color='green', linestyle='-', label=f'Length/4 = {table_length / 4}')
+plt.xlabel('Time [s]')
+plt.ylabel('Distance [px]')
+plt.title('Distance between two balls over time')
+plt.legend()
+plt.savefig('plots/distance_between_balls_with_lyapunov.png')
+plt.show()
+
+print(f"Estimated Lyapunov exponent (λ): {lambda_value:.5f}")
+
+
+if not os.path.exists('plots'):
+    os.makedirs('plots')
+
+fig, ax = plt.subplots()
+ax.set_aspect('equal')
+ax.set_xlim(-10, table_length + 10)
+ax.set_ylim(-10, table_width + 10)
+
+left_arc = Arc((pool_table_1.radius, pool_table_1.width / 2), 2 * pool_table_1.radius, 2 * pool_table_1.radius, angle=0,
+               theta1=90, theta2=270, color='red', fill=False)
+right_arc = Arc((pool_table_1.length - pool_table_1.radius, pool_table_1.width / 2), 2 * pool_table_1.radius,
+                2 * pool_table_1.radius, angle=0,
+                theta1=-90, theta2=90, color='red', fill=False)
+
+ax.add_patch(left_arc)
+ax.add_patch(right_arc)
+
+ax.plot([pool_table_1.radius, pool_table_1.length - pool_table_1.radius], [0, 0], color='red', linewidth=1)
+ax.plot([pool_table_1.radius, pool_table_1.length - pool_table_1.radius], [pool_table_1.width, pool_table_1.width],
+        color='red', linewidth=1)
+
+ax.plot(positions_1[:, 0], positions_1[:, 1], color='blue', label='First trajectory')
+ax.plot(positions_2[:, 0], positions_2[:, 1], color='brown', label='Second trajectory')
+
+ax.set_xlabel(r'$x$ [px]')
+ax.set_ylabel(r'$y$ [px]')
+plt.title(r'Trajectories of Two Balls on the Pool Table')
+plt.legend()
+plt.savefig('plots/both_trajectories.jpg')
+plt.show()
